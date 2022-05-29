@@ -339,7 +339,6 @@ public final class Tx {
 
         // Clear all references.
         db = null;
-        meta = null;
         dirtyPages = null;
         root = null;
     }
