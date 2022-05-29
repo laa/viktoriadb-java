@@ -31,6 +31,14 @@ final class BTreePage extends Page {
             LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("count"));
     private static final VarHandle COUNT_HANDLE = MemoryHandles.varHandle(short.class, ByteOrder.nativeOrder());
 
+    private static final long BRANCH_ELEMENTS_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
+                    MemoryLayout.PathElement.groupElement(BRANCH_ELEMENTS));
+
+    private static final long LEAF_ELEMENTS_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
+                    MemoryLayout.PathElement.groupElement(LEAF_ELEMENTS));
+
     BTreePage(MemorySegment memorySegment) {
         super(memorySegment);
     }
@@ -45,16 +53,12 @@ final class BTreePage extends Page {
 
     LeafPageElements getLeafElements() {
         final short size = (short) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
-        final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
-                MemoryLayout.PathElement.groupElement(LEAF_ELEMENTS));
-        final MemorySegment memorySegment = pageSegment.asSlice(offset);
+        final MemorySegment memorySegment = pageSegment.asSlice(LEAF_ELEMENTS_OFFSET);
         return new LeafPageElements(memorySegment, size);
     }
 
     int getLeafElementOffset(int index) {
-        final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
-                MemoryLayout.PathElement.groupElement(LEAF_ELEMENTS),
-                MemoryLayout.PathElement.sequenceElement(index));
+        final long offset = LEAF_ELEMENTS_OFFSET + LeafPageElement.SIZE * (long) index;
         return (int) offset;
     }
 
@@ -67,16 +71,12 @@ final class BTreePage extends Page {
 
     BranchPageElements getBranchElements() {
         final short count = (short) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
-        final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
-                MemoryLayout.PathElement.groupElement(BRANCH_ELEMENTS));
-        final MemorySegment memorySegment = pageSegment.asSlice(offset);
+        final MemorySegment memorySegment = pageSegment.asSlice(BRANCH_ELEMENTS_OFFSET);
         return new BranchPageElements(memorySegment, count);
     }
 
     int getBranchElementOffset(int index) {
-        final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
-                MemoryLayout.PathElement.groupElement(BRANCH_ELEMENTS),
-                MemoryLayout.PathElement.sequenceElement(index));
+        final long offset = BRANCH_ELEMENTS_OFFSET + ((long) index) * BranchPageElement.SIZE;
         return (int) offset;
     }
 
