@@ -7,9 +7,9 @@
  */
 
 plugins {
-    // Apply the java-library plugin for API and implementation separation.
     `java-library`
     `maven-publish`
+    jacoco
 }
 
 
@@ -38,4 +38,8 @@ tasks.withType<Test>().all {
     jvmArgs("--add-modules", "jdk.incubator.foreign", "-XX:+HeapDumpOnOutOfMemoryError")
     testLogging.events.add(org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED)
     testLogging.events.add(org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
 }
