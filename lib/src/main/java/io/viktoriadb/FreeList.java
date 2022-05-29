@@ -4,10 +4,12 @@ import io.viktoriadb.exceptions.DbException;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 
 import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
 
@@ -22,10 +24,13 @@ final class FreeList {
             MemoryLayout.paddingLayout(32),
             MemoryLayout.sequenceLayout(MemoryLayouts.JAVA_LONG).withName("pgids"));
 
-    private static final VarHandle COUNT_HANDLE = PAGE_LAYOUT.varHandle(int.class,
-            MemoryLayout.PathElement.groupElement("count"));
-    private static final VarHandle PAGE_IDS_HANDLE = PAGE_LAYOUT.varHandle(long.class,
-            MemoryLayout.PathElement.groupElement("pgids"), MemoryLayout.PathElement.sequenceElement());
+    private static final long COUNT_HANDLE_OFFSET =
+            PAGE_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("count"));
+    private static final VarHandle COUNT_HANDLE = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+
+    private static final long PAGE_IDS_HANDLE_BASE = PAGE_LAYOUT.byteOffset(
+            MemoryLayout.PathElement.groupElement("pgids"), MemoryLayout.PathElement.sequenceElement(0));
+    private static final VarHandle PAGE_IDS_HANDLE = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
     /**
      * Creates new {@link LongArrayList} if it is absent into the <code>Map</code>.
      */
@@ -217,19 +222,19 @@ final class FreeList {
 
         var pageSegment = page.pageSegment;
 
-        COUNT_HANDLE.set(pageSegment, count);
+        COUNT_HANDLE.set(pageSegment, COUNT_HANDLE_OFFSET, count);
 
         int index = 0;
         for (int i = 0; i < ids.size(); i++) {
             var pageId = ids.getLong(i);
-            PAGE_IDS_HANDLE.set(pageSegment, index, pageId);
+            PAGE_IDS_HANDLE.set(pageSegment, ((long) index) * Long.BYTES + PAGE_IDS_HANDLE_BASE, pageId);
             index++;
         }
 
         for (var ids : pending.values()) {
             for (int i = 0; i < ids.size(); i++) {
                 var pageId = ids.getLong(i);
-                PAGE_IDS_HANDLE.set(pageSegment, index, pageId);
+                PAGE_IDS_HANDLE.set(pageSegment, ((long) index) * Long.BYTES + PAGE_IDS_HANDLE_BASE, pageId);
                 index++;
             }
         }
@@ -243,11 +248,11 @@ final class FreeList {
     void read(Page page) {
         var pageSegment = page.pageSegment;
 
-        int count = (int) COUNT_HANDLE.get(pageSegment);
+        int count = (int) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
         ids.clear();
 
         for (int i = 0; i < count; i++) {
-            final long pageId = (long) PAGE_IDS_HANDLE.get(pageSegment, i);
+            final long pageId = (long) PAGE_IDS_HANDLE.get(pageSegment, PAGE_IDS_HANDLE_BASE + ((long) i) * Long.BYTES);
             ids.add(pageId);
         }
 

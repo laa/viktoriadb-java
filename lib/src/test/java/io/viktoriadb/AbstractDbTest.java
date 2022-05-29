@@ -17,7 +17,7 @@ public class AbstractDbTest {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        try (var db = DB.open(tempFile, new Options(true, false))) {
+        try (var db = DB.open(tempFile, new Options(true, false, 0))) {
             consumer.accept(db);
             db.executeInsideWriteTx(Tx::check);
         }

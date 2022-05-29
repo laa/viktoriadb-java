@@ -42,7 +42,8 @@ public final class DB implements Closeable {
      * DefaultOptions represent the options used if nil options are passed into {@link DB#open(Path, Options)}.
      * No timeout is used which will cause Bolt to wait indefinitely for a lock.
      */
-    private static final Options DEFAULT_OPTIONS = new Options(false, false);
+    private static final Options DEFAULT_OPTIONS = new Options(false, false,
+            2 * DEFAULT_PAGE_SIZE);
 
 
     /**
@@ -174,7 +175,7 @@ public final class DB implements Closeable {
                 storage.init();
             }
 
-            storage.mmap(2L * storage.pageSize);
+            storage.mmap(Math.max(2L * storage.pageSize, options.initialSize()));
             storage.freeList.read(storage.page(storage.meta().getFreeList()));
         } catch (Exception e) {
             storage.doClose();

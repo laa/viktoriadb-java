@@ -1,11 +1,13 @@
 package io.viktoriadb;
 
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 
 import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.AbstractList;
 import java.util.RandomAccess;
 
@@ -25,23 +27,24 @@ final class BTreePage extends Page {
             (int) LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS));
 
 
-    private static final VarHandle COUNT_HANDLE = LAYOUT.varHandle(short.class,
-            MemoryLayout.PathElement.groupElement("count"));
+    private static final long COUNT_HANDLE_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("count"));
+    private static final VarHandle COUNT_HANDLE = MemoryHandles.varHandle(short.class, ByteOrder.nativeOrder());
 
     BTreePage(MemorySegment memorySegment) {
         super(memorySegment);
     }
 
     short getCount() {
-        return (short) COUNT_HANDLE.get(pageSegment);
+        return (short) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
     }
 
     void setCount(short count) {
-        COUNT_HANDLE.set(pageSegment, count);
+        COUNT_HANDLE.set(pageSegment, COUNT_HANDLE_OFFSET, count);
     }
 
     LeafPageElements getLeafElements() {
-        final short size = (short) COUNT_HANDLE.get(pageSegment);
+        final short size = (short) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
         final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
                 MemoryLayout.PathElement.groupElement(LEAF_ELEMENTS));
         final MemorySegment memorySegment = pageSegment.asSlice(offset);
@@ -63,7 +66,7 @@ final class BTreePage extends Page {
     }
 
     BranchPageElements getBranchElements() {
-        final short count = (short) COUNT_HANDLE.get(pageSegment);
+        final short count = (short) COUNT_HANDLE.get(pageSegment, COUNT_HANDLE_OFFSET);
         final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement(ELEMENTS),
                 MemoryLayout.PathElement.groupElement(BRANCH_ELEMENTS));
         final MemorySegment memorySegment = pageSegment.asSlice(offset);
@@ -94,18 +97,25 @@ final class BTreePage extends Page {
 
         static final int SIZE = (int) LAYOUT.byteSize();
 
+        private static final long FLAGS_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("flags"));
         private static final VarHandle FLAGS_HANDLE =
-                LAYOUT.varHandle(int.class,
-                        MemoryLayout.PathElement.groupElement("flags"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+        private static final long POS_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("pos"));
         private static final VarHandle POS_HANDLE =
-                LAYOUT.varHandle(int.class,
-                        MemoryLayout.PathElement.groupElement("pos"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+
+        private static final long KSIZE_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("ksize"));
         private static final VarHandle KSIZE_HANDLE =
-                LAYOUT.varHandle(int.class,
-                        MemoryLayout.PathElement.groupElement("ksize"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+
+        private static final long VSIZE_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("vsize"));
+
         private static final VarHandle VSIZE_HANDLE =
-                LAYOUT.varHandle(int.class,
-                        MemoryLayout.PathElement.groupElement("vsize"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
 
 
         private final MemorySegment memorySegment;
@@ -115,49 +125,49 @@ final class BTreePage extends Page {
         }
 
         int getFlags() {
-            return (int) FLAGS_HANDLE.get(memorySegment);
+            return (int) FLAGS_HANDLE.get(memorySegment, FLAGS_HANDLE_OFFSET);
         }
 
         void setFlags(int flags) {
-            FLAGS_HANDLE.set(memorySegment, flags);
+            FLAGS_HANDLE.set(memorySegment, FLAGS_HANDLE_OFFSET, flags);
         }
 
         void setPos(int pos) {
-            POS_HANDLE.set(memorySegment, pos);
+            POS_HANDLE.set(memorySegment, POS_HANDLE_OFFSET, pos);
         }
 
         int getPos() {
-            return (int) POS_HANDLE.get(memorySegment);
+            return (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
         }
 
         void setKSize(int ksize) {
-            KSIZE_HANDLE.set(memorySegment, ksize);
+            KSIZE_HANDLE.set(memorySegment, KSIZE_HANDLE_OFFSET, ksize);
         }
 
         int getKSize() {
-            return (int) KSIZE_HANDLE.get(memorySegment);
+            return (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
         }
 
 
         void setVSize(int vsize) {
-            VSIZE_HANDLE.set(memorySegment, vsize);
+            VSIZE_HANDLE.set(memorySegment, VSIZE_HANDLE_OFFSET, vsize);
         }
 
         int getVSize() {
-            return (int) VSIZE_HANDLE.get(memorySegment);
+            return (int) VSIZE_HANDLE.get(memorySegment, VSIZE_HANDLE_OFFSET);
         }
 
         ByteBuffer getKey() {
-            final int pos = (int) POS_HANDLE.get(memorySegment);
-            final int ksize = (int) KSIZE_HANDLE.get(memorySegment);
+            final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
+            final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
 
             return memorySegment.asSlice(pos, ksize).asByteBuffer();
         }
 
         ByteBuffer getValue() {
-            final int pos = (int) POS_HANDLE.get(memorySegment);
-            final int ksize = (int) KSIZE_HANDLE.get(memorySegment);
-            final int vsize = (int) VSIZE_HANDLE.get(memorySegment);
+            final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
+            final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
+            final int vsize = (int) VSIZE_HANDLE.get(memorySegment, VSIZE_HANDLE_OFFSET);
 
             return memorySegment.asSlice(pos + ksize, vsize).asByteBuffer();
         }
@@ -165,6 +175,8 @@ final class BTreePage extends Page {
 
     static final class LeafPageElements extends AbstractList<LeafPageElement> implements RandomAccess {
         private static final MemoryLayout LAYOUT = MemoryLayout.sequenceLayout(LeafPageElement.LAYOUT);
+        private static final long BASE_OFFSET = LAYOUT.byteOffset(MemoryLayout.PathElement.sequenceElement(0));
+
         private final MemorySegment memorySegment;
         private final int size;
 
@@ -174,7 +186,7 @@ final class BTreePage extends Page {
         }
 
         public LeafPageElement get(final int index) {
-            final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.sequenceElement(index));
+            final long offset = BASE_OFFSET + ((long) index) * LeafPageElement.SIZE;
             final MemorySegment memorySegment = this.memorySegment.asSlice(offset);
             return new LeafPageElement(memorySegment);
         }
@@ -194,12 +206,20 @@ final class BTreePage extends Page {
 
         static final int SIZE = (int) LAYOUT.byteSize();
 
+        private static final long PGID_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("pgid"));
         private static final VarHandle PGID_HANDLE =
-                LAYOUT.varHandle(long.class, MemoryLayout.PathElement.groupElement("pgid"));
+                MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+
+        private static final long KSIZE_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("ksize"));
         private static final VarHandle KSIZE_HANDLE =
-                LAYOUT.varHandle(int.class, MemoryLayout.PathElement.groupElement("ksize"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+
+        private static final long POS_HANDLE_OFFSET =
+                LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("pos"));
         private static final VarHandle POS_HANDLE =
-                LAYOUT.varHandle(int.class, MemoryLayout.PathElement.groupElement("pos"));
+                MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
 
         private final MemorySegment memorySegment;
 
@@ -208,32 +228,32 @@ final class BTreePage extends Page {
         }
 
         long getPageId() {
-            return (long) PGID_HANDLE.get(memorySegment);
+            return (long) PGID_HANDLE.get(memorySegment, PGID_HANDLE_OFFSET);
         }
 
         void setPageId(long pageId) {
-            PGID_HANDLE.set(memorySegment, pageId);
+            PGID_HANDLE.set(memorySegment, PGID_HANDLE_OFFSET, pageId);
         }
 
         void setKSize(int ksize) {
-            KSIZE_HANDLE.set(memorySegment, ksize);
+            KSIZE_HANDLE.set(memorySegment, KSIZE_HANDLE_OFFSET, ksize);
         }
 
         int getKSize() {
-            return (int) KSIZE_HANDLE.get(memorySegment);
+            return (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
         }
 
         void setPos(int pos) {
-            POS_HANDLE.set(memorySegment, pos);
+            POS_HANDLE.set(memorySegment, POS_HANDLE_OFFSET, pos);
         }
 
         int getPos() {
-            return (int) POS_HANDLE.get(memorySegment);
+            return (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
         }
 
         ByteBuffer getKey() {
-            final int pos = (int) POS_HANDLE.get(memorySegment);
-            final int ksize = (int) KSIZE_HANDLE.get(memorySegment);
+            final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
+            final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
 
             return memorySegment.asSlice(pos, ksize).asByteBuffer();
         }
@@ -241,8 +261,11 @@ final class BTreePage extends Page {
 
     static final class BranchPageElements extends AbstractList<BranchPageElement> implements RandomAccess {
         private static final MemoryLayout LAYOUT = MemoryLayout.sequenceLayout(BranchPageElement.LAYOUT);
+        private static final long BASE_OFFSET = LAYOUT.byteOffset(MemoryLayout.PathElement.sequenceElement(0));
+
         private final MemorySegment memorySegment;
         private final int size;
+
 
         BranchPageElements(MemorySegment memorySegment, int size) {
             this.memorySegment = memorySegment;
@@ -250,7 +273,7 @@ final class BTreePage extends Page {
         }
 
         public BranchPageElement get(final int index) {
-            final long offset = LAYOUT.byteOffset(MemoryLayout.PathElement.sequenceElement(index));
+            final long offset = BASE_OFFSET + ((long) index) * BranchPageElement.SIZE;
             final MemorySegment memorySegment = this.memorySegment.asSlice(offset);
             return new BranchPageElement(memorySegment);
         }

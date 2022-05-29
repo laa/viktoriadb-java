@@ -1,11 +1,13 @@
 package io.viktoriadb;
 
 import io.viktoriadb.exceptions.DbException;
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 
 import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 
 class Page {
     static final MemoryLayout LAYOUT = MemoryLayout.structLayout(
@@ -19,12 +21,17 @@ class Page {
     static final short META_PAGE_FLAG = 0x04;
     static final short FREE_LIST_PAGE_FLAG = 0x08;
 
-    private static final VarHandle ID_HANDLE = LAYOUT.varHandle(long.class,
-            MemoryLayout.PathElement.groupElement("id"));
-    private static final VarHandle OVERFLOW_HANDLE = LAYOUT.varHandle(int.class,
-            MemoryLayout.PathElement.groupElement("overflow"));
-    private static final VarHandle FLAGS_HANDLE = LAYOUT.varHandle(short.class,
-            MemoryLayout.PathElement.groupElement("flags"));
+    private static final long ID_HANDLE_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("id"));
+    private static final VarHandle ID_HANDLE = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+
+    private static final long OVERFLOW_HANDLE_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("overflow"));
+    private static final VarHandle OVERFLOW_HANDLE = MemoryHandles.varHandle(int.class, ByteOrder.nativeOrder());
+
+    private static final long FLAGS_HANDLE_OFFSET =
+            LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("flags"));
+    private static final VarHandle FLAGS_HANDLE = MemoryHandles.varHandle(short.class, ByteOrder.nativeOrder());
 
     final MemorySegment pageSegment;
 
@@ -35,7 +42,7 @@ class Page {
      * @return Page instance
      */
     static Page createExistingPage(MemorySegment pageSegment) {
-        var flags = (short) FLAGS_HANDLE.get(pageSegment);
+        var flags = (short) FLAGS_HANDLE.get(pageSegment, FLAGS_HANDLE_OFFSET);
 
         if (((flags & BRANCH_PAGE_FLAG) != 0) || ((flags & LEAF_PAGE_FLAG) != 0)) {
             return new BTreePage(pageSegment);
@@ -65,7 +72,7 @@ class Page {
             case FREE_LIST_PAGE -> FREE_LIST_PAGE_FLAG;
         };
 
-        FLAGS_HANDLE.set(pageSegment, flag);
+        FLAGS_HANDLE.set(pageSegment, FLAGS_HANDLE_OFFSET, flag);
         return createExistingPage(pageSegment);
     }
 
@@ -74,27 +81,27 @@ class Page {
     }
 
     final void setPageId(long pageId) {
-        ID_HANDLE.set(pageSegment, pageId);
+        ID_HANDLE.set(pageSegment, ID_HANDLE_OFFSET, pageId);
     }
 
     final long getPageId() {
-        return (long) ID_HANDLE.get(pageSegment);
+        return (long) ID_HANDLE.get(pageSegment, ID_HANDLE_OFFSET);
     }
 
     final void setOverflow(int overflow) {
-        OVERFLOW_HANDLE.set(pageSegment, overflow);
+        OVERFLOW_HANDLE.set(pageSegment, OVERFLOW_HANDLE_OFFSET, overflow);
     }
 
     final int getOverflow() {
-        return (int) OVERFLOW_HANDLE.get(pageSegment);
+        return (int) OVERFLOW_HANDLE.get(pageSegment, OVERFLOW_HANDLE_OFFSET);
     }
 
     final void setFlags(short flags) {
-        FLAGS_HANDLE.set(pageSegment, flags);
+        FLAGS_HANDLE.set(pageSegment, FLAGS_HANDLE_OFFSET, flags);
     }
 
     final short getFlags() {
-        return (short) FLAGS_HANDLE.get(pageSegment);
+        return (short) FLAGS_HANDLE.get(pageSegment, FLAGS_HANDLE_OFFSET);
     }
 
     enum PageType {
