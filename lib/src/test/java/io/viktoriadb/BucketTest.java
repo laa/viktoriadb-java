@@ -1,10 +1,12 @@
 package io.viktoriadb;
 
 import io.viktoriadb.exceptions.*;
+import org.checkerframework.checker.units.qual.A;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 
 public class BucketTest extends AbstractDbTest {
 
@@ -635,6 +637,89 @@ public class BucketTest extends AbstractDbTest {
                 Assert.assertEquals(1, stats.bucketN);
                 Assert.assertEquals(0, stats.inlineBucketN);
                 Assert.assertEquals(0, stats.inlineBucketInUse);
+            });
+        });
+    }
+
+    /**
+     * Ensure that a bucket can write random keys and values across multiple transactions.
+     */
+    @Test
+    public void testPutSingle() {
+        var data = randomData();
+
+        runTest(db -> {
+            db.executeInsideWriteTx(tx -> tx.createBucket(bytes("widgets")));
+            for (var kv : data) {
+                db.executeInsideWriteTx(tx -> {
+                    var bucket = tx.bucket(bytes("widgets"));
+                    bucket.put(kv[0], kv[1]);
+                });
+            }
+
+            db.executeInReadTx(tx -> {
+                var bucket = tx.bucket(bytes("widgets"));
+
+                for (var kv : data) {
+                    var value = bucket.get(kv[0]);
+                    Assert.assertEquals(kv[1], value);
+                }
+            });
+        });
+    }
+
+    /**
+     * Ensure that a transaction can insert multiple key/value pairs at once.
+     */
+    @Test
+    public void testPutMultiple() {
+        runTest(db -> {
+            var data = randomData();
+
+            db.executeInsideWriteTx(tx -> tx.createBucket(bytes("widgets")));
+            db.executeInsideWriteTx(tx -> {
+                var bucket = tx.bucket(bytes("widgets"));
+                for (var kv : data) {
+                    bucket.put(kv[0], kv[1]);
+                }
+            });
+
+            db.executeInReadTx(tx -> {
+                var bucket = tx.bucket(bytes("widgets"));
+                for (var kv : data) {
+                    var value = bucket.get(kv[0]);
+                    Assert.assertEquals(kv[1], value);
+                }
+            });
+        });
+    }
+
+    /**
+     * Ensure that a transaction can delete all key/value pairs
+     */
+    @Test
+    public void testDeleteQuick() {
+        runTest(db -> {
+            var data = randomData();
+
+            db.executeInsideWriteTx(tx -> tx.createBucket(bytes("widgets")));
+            db.executeInsideWriteTx(tx -> {
+                var bucket = tx.bucket(bytes("widgets"));
+                for (var kv : data) {
+                    bucket.put(kv[0], kv[1]);
+                }
+            });
+
+            for (var kv : data) {
+                db.executeInsideWriteTx(tx -> {
+                    var bucket = tx.bucket(bytes("widgets"));
+                    bucket.delete(kv[0]);
+                });
+            }
+
+            db.executeInReadTx(tx -> {
+                var bucket = tx.bucket(bytes("widgets"));
+                bucket.forEach((k, v) -> Assert.fail());
             });
         });
     }

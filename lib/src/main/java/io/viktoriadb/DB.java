@@ -24,11 +24,6 @@ import java.util.function.Consumer;
 
 public final class DB implements Closeable {
     /**
-     * The largest step that can be taken when remapping the mmap.
-     */
-    private static final int MAX_MMAP_STEP = 1 << 30;
-
-    /**
      * The data file format version.
      */
     static final int VERSION = 2;
@@ -47,8 +42,7 @@ public final class DB implements Closeable {
      * DefaultOptions represent the options used if nil options are passed into {@link DB#open(Path, Options)}.
      * No timeout is used which will cause Bolt to wait indefinitely for a lock.
      */
-    private static final Options DEFAULT_OPTIONS =
-            new Options(null, false, 2);
+    private static final Options DEFAULT_OPTIONS = new Options(false, false);
 
 
     /**
@@ -71,7 +65,7 @@ public final class DB implements Closeable {
      * <p>
      * THIS IS UNSAFE. PLEASE USE WITH CAUTION.
      */
-    boolean noSync;
+    final boolean noSync;
 
     private final Path path;
 
@@ -83,7 +77,6 @@ public final class DB implements Closeable {
     private ResourceScope mmapScope;
 
     private long dataSz;
-    private long fileSz;
 
     private Meta meta0;
     private Meta meta1;
@@ -169,7 +162,8 @@ public final class DB implements Closeable {
             fileLock = null;
         }
 
-        var storage = new DB(path, file, fileChannel, fileLock, options.readOnly(), DEFAULT_PAGE_SIZE);
+        var storage = new DB(options.noSync(), path, file, fileChannel, fileLock,
+                options.readOnly(), DEFAULT_PAGE_SIZE);
 
         try {
             storage.opened = true;
@@ -180,7 +174,7 @@ public final class DB implements Closeable {
                 storage.init();
             }
 
-            storage.mmap(Math.max(options.initialMMapSize(), 2L * storage.pageSize));
+            storage.mmap(2L * storage.pageSize);
             storage.freeList.read(storage.page(storage.meta().getFreeList()));
         } catch (Exception e) {
             storage.doClose();
@@ -195,8 +189,9 @@ public final class DB implements Closeable {
         return storage;
     }
 
-    private DB(Path path, RandomAccessFile file, FileChannel fileChannel, FileLock fileLock,
+    private DB(boolean noSync, Path path, RandomAccessFile file, FileChannel fileChannel, FileLock fileLock,
                boolean readOnly, int pageSize) {
+        this.noSync = noSync;
         this.path = path;
         this.fileChannel = fileChannel;
         this.file = file;
@@ -242,14 +237,6 @@ public final class DB implements Closeable {
         } catch (IOException e) {
             throw new DbException("Error during database initialization", e);
         }
-    }
-
-    public boolean isNoSync() {
-        return noSync;
-    }
-
-    public void setNoSync(boolean noSync) {
-        this.noSync = noSync;
     }
 
     /**

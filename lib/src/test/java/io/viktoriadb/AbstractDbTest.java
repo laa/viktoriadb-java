@@ -17,7 +17,7 @@ public class AbstractDbTest {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        try (var db = DB.open(tempFile, null)) {
+        try (var db = DB.open(tempFile, new Options(true, false))) {
             consumer.accept(db);
             db.executeInsideWriteTx(Tx::check);
         }
@@ -40,7 +40,7 @@ public class AbstractDbTest {
     }
 
     public ArrayList<ByteBuffer[]> randomData() {
-        int count = 1_000;
+        int count = 10_000;
         ArrayList<ByteBuffer[]> data = new ArrayList<>();
         Random rnd = new Random(42);
 
