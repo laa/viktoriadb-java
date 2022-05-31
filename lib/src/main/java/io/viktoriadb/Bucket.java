@@ -1,12 +1,16 @@
 package io.viktoriadb;
 
 import io.viktoriadb.exceptions.*;
+import io.viktoriadb.util.MemorySegmentComparator;
 import it.unimi.dsi.fastutil.Pair;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemorySegment;
 
+import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Objects;
@@ -17,6 +21,8 @@ import java.util.function.ObjIntConsumer;
  * Represents a collection of key/value pairs inside the database.
  */
 public final class Bucket {
+    private static final VarHandle ROOT_VAR_HANDLE = MemoryHandles.varHandle(long.class, ByteOrder.nativeOrder());
+
     /**
      * Maximum length of a key, in bytes.
      */
@@ -147,15 +153,17 @@ public final class Bucket {
             }
         }
 
+        var nameSegment = MemorySegment.ofByteBuffer(name);
         var cursor = cursor();
 
-        var kvFlags = cursor.doSeek(name);
+        var kvFlags = cursor.doSeek(nameSegment);
         if (kvFlags == null) {
             return null;
         }
 
         // Return null if the key doesn't exist or it is not a bucket.
-        if (!kvFlags.first.equals(name) || (kvFlags.third & BUCKET_LEAF_FLAG) == 0) {
+        if (MemorySegmentComparator.INSTANCE.compare(kvFlags.first, nameSegment) != 0
+                || (kvFlags.third & BUCKET_LEAF_FLAG) == 0) {
             return null;
         }
 
@@ -175,24 +183,23 @@ public final class Bucket {
      * @param bucketValue Serialized presentation of bucket.
      * @return Deserialized presentation of {@link  Bucket}.
      */
-    private Bucket openBucket(ByteBuffer bucketValue) {
+    private Bucket openBucket(MemorySegment bucketValue) {
         var child = new Bucket(tx);
 
-        child.root = bucketValue.getLong(bucketValue.position());
+        if (bucketValue.isNative() && (bucketValue.address().toRawLongValue() & 3) != 0) {
+            var heapSegment = MemorySegment.ofArray(new byte[(int) bucketValue.byteSize()]);
+            heapSegment.copyFrom(bucketValue);
+
+            bucketValue = heapSegment;
+        }
+
+        child.root = (long) ROOT_VAR_HANDLE.get(bucketValue, 0);
 
         //Save a reference to the inline page if the bucket is inline.
         if (child.root == 0) {
-            var memorySegment = MemorySegment.ofByteBuffer(
-                    bucketValue.slice(bucketValue.position() + Long.BYTES,
-                            bucketValue.remaining() - Long.BYTES));
+            var memorySegment = bucketValue.asSlice(Long.BYTES);
             //if alignment of bucket is broken
-            if (memorySegment.isNative() && ((memorySegment.address().toRawLongValue() & 3) != 0)) {
-                var heapSegment = MemorySegment.ofArray(new byte[(int) memorySegment.byteSize()]);
-                heapSegment.copyFrom(memorySegment);
-                child.page = new BTreePage(heapSegment);
-            } else {
-                child.page = new BTreePage(memorySegment);
-            }
+            child.page = new BTreePage(memorySegment);
         }
 
         return child;
@@ -216,14 +223,14 @@ public final class Bucket {
             throw new BucketNameRequiredException();
         }
 
-        var bufferKey = ByteBuffer.allocate(name.remaining());
-        bufferKey.put(0, name, 0, name.remaining());
+        var segmentKey = MemorySegment.ofArray(new byte[name.remaining()]);
+        segmentKey.asByteBuffer().put(0, name, 0, name.remaining());
 
 
         var cursor = cursor();
-        var kvFlags = cursor.doSeek(bufferKey);
+        var kvFlags = cursor.doSeek(segmentKey);
 
-        if (kvFlags != null && kvFlags.first.equals(bufferKey)) {
+        if (kvFlags != null && MemorySegmentComparator.INSTANCE.compare(kvFlags.first, segmentKey) == 0) {
             if ((kvFlags.third & BUCKET_LEAF_FLAG) != 0) {
                 throw new BucketAlreadyExistException();
             }
@@ -237,7 +244,7 @@ public final class Bucket {
         bucket.rootNode.isLeaf = true;
 
         var value = bucket.write();
-        cursor.node().put(bufferKey, bufferKey, value, 0, BUCKET_LEAF_FLAG);
+        cursor.node().put(segmentKey, segmentKey, value, 0, BUCKET_LEAF_FLAG);
 
         // Since subbuckets are not allowed on inline buckets, we need to
         // dereference the inline page, if it exists. This will cause the bucket
@@ -279,12 +286,14 @@ public final class Bucket {
             throw new TransactionIsNotWritableException();
         }
 
+        var segmentName = MemorySegment.ofByteBuffer(name);
+
         var cursor = cursor();
-        var kvFlags = cursor.doSeek(name);
+        var kvFlags = cursor.doSeek(segmentName);
         if (kvFlags == null) {
             throw new BucketNotFoundException();
         }
-        if (!kvFlags.first.equals(name)) {
+        if (MemorySegmentComparator.INSTANCE.compare(kvFlags.first, segmentName) != 0) {
             throw new BucketNotFoundException();
         }
         if ((kvFlags.third & BUCKET_LEAF_FLAG) == 0) {
@@ -308,7 +317,7 @@ public final class Bucket {
         child.free();
 
         // Delete the node if we have a matching key.
-        cursor.node().del(name);
+        cursor.node().del(segmentName);
     }
 
     /**
@@ -319,7 +328,9 @@ public final class Bucket {
      * @return a null value if the key does not exist or if the key is a nested bucket.
      */
     public ByteBuffer get(ByteBuffer key) {
-        var kvFlags = cursor().doSeek(key);
+        var segmentKey = MemorySegment.ofByteBuffer(key);
+
+        var kvFlags = cursor().doSeek(segmentKey);
 
         if (kvFlags == null) {
             return null;
@@ -329,11 +340,11 @@ public final class Bucket {
             return null;
         }
 
-        if (!key.equals(kvFlags.first)) {
+        if (MemorySegmentComparator.INSTANCE.compare(segmentKey, kvFlags.first) != 0) {
             return null;
         }
 
-        return kvFlags.second.slice().asReadOnlyBuffer();
+        return unmap(kvFlags.second).asReadOnlyBuffer();
     }
 
     /**
@@ -360,12 +371,11 @@ public final class Bucket {
         }
 
 
-        ByteBuffer keyBuffer = ByteBuffer.allocate(key.remaining());
-        keyBuffer.put(0, key, 0, key.remaining());
+        var segmentKey = MemorySegment.ofArray(new byte[key.remaining()]);
+        segmentKey.asByteBuffer().put(0, key, 0, key.remaining());
 
-
-        ByteBuffer valueBuffer = ByteBuffer.allocate(value.remaining());
-        valueBuffer.put(0, value, 0, value.remaining());
+        var segmentValue = MemorySegment.ofArray(new byte[value.remaining()]);
+        segmentValue.asByteBuffer().put(0, value, 0, value.remaining());
 
         if (tx.db == null) {
             throw new TransactionIsClosedException();
@@ -376,15 +386,16 @@ public final class Bucket {
         }
 
         var cursor = cursor();
-        var kvFlags = cursor.doSeek(keyBuffer);
+        var kvFlags = cursor.doSeek(segmentKey);
 
         // Return an error if there is already existing bucket value.
-        if (kvFlags != null && (kvFlags.third & BUCKET_LEAF_FLAG) != 0 && kvFlags.first.equals(key)) {
+        if (kvFlags != null && (kvFlags.third & BUCKET_LEAF_FLAG) != 0 &&
+                MemorySegmentComparator.INSTANCE.compare(kvFlags.first, segmentKey) == 0) {
             throw new IncompatibleValueException();
         }
 
         // Delete the node if we have a matching key.
-        cursor.node().put(key, key, value, 0, 0);
+        cursor.node().put(segmentKey, segmentKey, segmentValue, 0, 0);
     }
 
     /**
@@ -403,10 +414,11 @@ public final class Bucket {
             throw new TransactionIsNotWritableException();
         }
 
+        var segmentKey = MemorySegment.ofByteBuffer(key);
 
         // Move cursor to correct position.
         var cursor = cursor();
-        var kvFlags = cursor.doSeek(key);
+        var kvFlags = cursor.doSeek(segmentKey);
         if (kvFlags == null) {
             return;
         }
@@ -416,7 +428,7 @@ public final class Bucket {
         }
 
         // Delete the node if we have a matching key.
-        cursor.node().del(key);
+        cursor.node().del(segmentKey);
     }
 
     /**
@@ -429,7 +441,7 @@ public final class Bucket {
             // write it inline into the parent bucket's page. Otherwise spill it
             // like a normal bucket and make the parent value a pointer to the page.
 
-            ByteBuffer value;
+            MemorySegment value;
             var child = entry.getValue();
             if (child.inlinable()) {
                 child.free();
@@ -438,8 +450,8 @@ public final class Bucket {
                 child.spill();
 
                 //Use the value of child root
-                value = ByteBuffer.allocate(Long.BYTES);
-                value.putLong(0, child.root);
+                value = MemorySegment.ofArray(new byte[Long.BYTES]);
+                ROOT_VAR_HANDLE.set(value, 0, child.root);
             }
 
             // Skip writing the bucket if there are no materialized nodes.
@@ -449,10 +461,10 @@ public final class Bucket {
 
             // Update parent node.
             var cursor = cursor();
-            var bucketName = entry.getKey();
-            var kvFlags = cursor.doSeek(entry.getKey());
+            var bucketName = MemorySegment.ofByteBuffer(entry.getKey());
+            var kvFlags = cursor.doSeek(bucketName);
 
-            if (kvFlags == null || !kvFlags.first.equals(bucketName)) {
+            if (kvFlags == null || MemorySegmentComparator.INSTANCE.compare(kvFlags.first, bucketName) != 0) {
                 throw new DbException("misplaced bucket header");
             }
             if ((kvFlags.third & BUCKET_LEAF_FLAG) == 0) {
@@ -520,7 +532,7 @@ public final class Bucket {
                 return false;
             }
 
-            size += BTreePage.LeafPageElement.SIZE + inode.value.remaining() + inode.key.remaining();
+            size += BTreePage.LeafPageElement.SIZE + (int) inode.value.byteSize() + (int) inode.key.byteSize();
             if (size > maxInlineBucketSize) {
                 return false;
             }
@@ -624,14 +636,12 @@ public final class Bucket {
      *
      * @return serialized presentation of bucket.
      */
-    private ByteBuffer write() {
+    private MemorySegment write() {
         // Allocate the appropriate size.
-        var value = ByteBuffer.allocate(Long.BYTES + rootNode.size());
-        value.putLong(0, root);
+        var value = MemorySegment.ofArray(new byte[Long.BYTES + rootNode.size()]);
+        ROOT_VAR_HANDLE.set(value, 0, root);
 
-        rootNode.write(new BTreePage(MemorySegment.ofByteBuffer(value.slice(Long.BYTES,
-                value.remaining() - Long.BYTES))));
-        value.rewind();
+        rootNode.write(new BTreePage(value.asSlice(Long.BYTES)));
 
         return value;
     }
@@ -830,18 +840,18 @@ public final class Bucket {
      * If buffer is mapped by mmap and current tx is writable tx then it could be invalidated during remmaping.
      * To prevent this buffer is copied.
      *
-     * @param buffer Buffer to copy
+     * @param memorySegment Buffer to copy
      * @return New buffer instance with the same data if needed.
      */
-    private ByteBuffer unmap(ByteBuffer buffer) {
-        if (tx.writable && buffer.isDirect()) {
-            var b = ByteBuffer.allocate(buffer.remaining());
-            b.put(0, buffer, 0, buffer.remaining());
+    private ByteBuffer unmap(MemorySegment memorySegment) {
+        if (tx.writable && memorySegment.isNative()) {
+            var segment = MemorySegment.ofArray(new byte[(int) memorySegment.byteSize()]);
+            segment.copyFrom(memorySegment);
 
-            return b;
+            return segment.asByteBuffer();
         }
 
-        return buffer;
+        return memorySegment.asByteBuffer();
     }
 
     /**

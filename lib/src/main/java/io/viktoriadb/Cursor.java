@@ -2,9 +2,10 @@ package io.viktoriadb;
 
 import com.google.common.collect.Lists;
 import io.viktoriadb.exceptions.*;
-import io.viktoriadb.util.ByteBufferComparator;
+import io.viktoriadb.util.MemorySegmentComparator;
 import io.viktoriadb.util.ObjectObjectIntTriple;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import jdk.incubator.foreign.MemorySegment;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -22,15 +23,15 @@ import java.util.Collections;
  */
 public final class Cursor {
     @SuppressWarnings("Guava")
-    private static final com.google.common.base.Function<Node.INode, ByteBuffer>
+    private static final com.google.common.base.Function<Node.INode, MemorySegment>
             iNodeKeyViewTransformer = inode -> inode.key;
 
     @SuppressWarnings("Guava")
-    private static final com.google.common.base.Function<BTreePage.LeafPageElement, ByteBuffer>
+    private static final com.google.common.base.Function<BTreePage.LeafPageElement, MemorySegment>
             leafPageKeyViewTransformer = BTreePage.LeafPageElement::getKey;
 
     @SuppressWarnings("Guava")
-    private static final com.google.common.base.Function<BTreePage.BranchPageElement, ByteBuffer>
+    private static final com.google.common.base.Function<BTreePage.BranchPageElement, MemorySegment>
             branchPageKeyViewTransformer = BTreePage.BranchPageElement::getKey;
 
 
@@ -131,7 +132,7 @@ public final class Cursor {
     public ByteBuffer[] next() {
         assert bucket.tx.db != null : "tx is closed";
 
-        final ObjectObjectIntTriple<ByteBuffer, ByteBuffer> kvFlags;
+        final ObjectObjectIntTriple<MemorySegment, MemorySegment> kvFlags;
         if (skipNext) {
             kvFlags = keyValue();
         } else {
@@ -201,7 +202,7 @@ public final class Cursor {
         skipNext = false;
         currentItemDeleted = false;
 
-        var kvFlags = doSeek(key);
+        var kvFlags = doSeek(MemorySegment.ofByteBuffer(key));
         if (kvFlags == null) {
             return null;
         }
@@ -297,16 +298,16 @@ public final class Cursor {
      * @param kvFlags KV pair and flags contained in {@link BTreePage.LeafPageElement}.
      * @return KV pair
      */
-    private ByteBuffer[] convertToKVPair(ObjectObjectIntTriple<ByteBuffer, ByteBuffer> kvFlags) {
+    private ByteBuffer[] convertToKVPair(ObjectObjectIntTriple<MemorySegment, MemorySegment> kvFlags) {
         if ((kvFlags.third & Bucket.BUCKET_LEAF_FLAG) != 0) {
             //copy key/value pairs, if tx is writable remmapping can invalidate buffer
             var key = unmap(kvFlags.first);
-            return new ByteBuffer[]{key.slice().asReadOnlyBuffer(), null};
+            return new ByteBuffer[]{key.asReadOnlyBuffer(), null};
         }
 
         var key = unmap(kvFlags.first);
         var value = unmap(kvFlags.second);
-        return new ByteBuffer[]{key.slice().asReadOnlyBuffer(), value.slice().asReadOnlyBuffer()};
+        return new ByteBuffer[]{key.asReadOnlyBuffer(), value.asReadOnlyBuffer()};
     }
 
     /**
@@ -317,7 +318,7 @@ public final class Cursor {
      * @return Key, value and flags of the leaf page which contains passed
      * in key or the smallest key bigger than passed in.
      */
-    ObjectObjectIntTriple<ByteBuffer, ByteBuffer> doSeek(ByteBuffer key) {
+    ObjectObjectIntTriple<MemorySegment, MemorySegment> doSeek(MemorySegment key) {
         assert bucket.tx.db != null : "Tx closed";
 
         // Start from root page/node and traverse to correct page.
@@ -361,7 +362,7 @@ public final class Cursor {
      *
      * @return Next key and value or null if such one does not exist.
      */
-    private ObjectObjectIntTriple<ByteBuffer, ByteBuffer> doNext() {
+    private ObjectObjectIntTriple<MemorySegment, MemorySegment> doNext() {
         while (true) {
             int i = stack.size() - 1;
             for (; i >= 0; i--) {
@@ -419,7 +420,7 @@ public final class Cursor {
      * @param key    Key to search
      * @param pageId Long page id.
      */
-    private void search(final ByteBuffer key, final long pageId) {
+    private void search(final MemorySegment key, final long pageId) {
         var pageNode = bucket.pageNode(pageId);
         var page = pageNode.first();
 
@@ -446,10 +447,10 @@ public final class Cursor {
      * @param key  Key to search
      * @param node Branch node to search inside
      */
-    private void searchNode(final ByteBuffer key, final Node node) {
+    private void searchNode(final MemorySegment key, final Node node) {
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var iNodesKeyView = Lists.transform(node.inodes, iNodeKeyViewTransformer);
-        var index = Collections.binarySearch(iNodesKeyView, key, ByteBufferComparator.INSTANCE);
+        var index = Collections.binarySearch(iNodesKeyView, key, MemorySegmentComparator.INSTANCE);
 
         //there is no exact match of the key
         if (index < 0) {
@@ -473,10 +474,10 @@ public final class Cursor {
      * @param key  Key to search
      * @param page Branch page to search inside
      */
-    private void searchPage(final ByteBuffer key, final BTreePage page) {
+    private void searchPage(final MemorySegment key, final BTreePage page) {
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var pagesKeyView = Lists.transform(page.getBranchElements(), branchPageKeyViewTransformer);
-        var index = Collections.binarySearch(pagesKeyView, key, ByteBufferComparator.INSTANCE);
+        var index = Collections.binarySearch(pagesKeyView, key, MemorySegmentComparator.INSTANCE);
 
         //there is no exact match of the key
         if (index < 0) {
@@ -499,13 +500,13 @@ public final class Cursor {
      *
      * @param key key to search.
      */
-    private void nsearch(final ByteBuffer key) {
+    private void nsearch(final MemorySegment key) {
         var ref = stack.get(stack.size() - 1);
         var node = ref.node;
         if (node != null) {
             @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
             var iNodesKeyView = Lists.transform(node.inodes, iNodeKeyViewTransformer);
-            int index = Collections.binarySearch(iNodesKeyView, key, ByteBufferComparator.INSTANCE);
+            int index = Collections.binarySearch(iNodesKeyView, key, MemorySegmentComparator.INSTANCE);
 
             if (index < 0) {
                 index = -index - 1;
@@ -517,7 +518,7 @@ public final class Cursor {
 
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var pagesKeyView = Lists.transform(ref.page.getLeafElements(), leafPageKeyViewTransformer);
-        int index = Collections.binarySearch(pagesKeyView, key, ByteBufferComparator.INSTANCE);
+        int index = Collections.binarySearch(pagesKeyView, key, MemorySegmentComparator.INSTANCE);
         if (index < 0) {
             index = -index - 1;
         }
@@ -529,7 +530,7 @@ public final class Cursor {
     /**
      * @return key and value of the current leaf element or null if cursor reaches the end of leaf element.
      */
-    private ObjectObjectIntTriple<ByteBuffer, ByteBuffer> keyValue() {
+    private ObjectObjectIntTriple<MemorySegment, MemorySegment> keyValue() {
         var ref = stack.get(stack.size() - 1);
         if (ref.count() == 0 || ref.index >= ref.count()) {
             return null;
@@ -583,20 +584,21 @@ public final class Cursor {
     }
 
     /**
-     * If buffer is mapped by mmap and current tx is writable tx then it could be invalidated during remmaping.
-     * To prevent this buffer is copied.
+     * If MemorySegment is mapped by mmap and current tx is writable tx then it could be invalidated during remmaping.
+     * To prevent this MemorySegment is copied.
      *
-     * @param buffer Buffer to copy
-     * @return New buffer instance with the same data if needed.
+     * @param memorySegment Segment to copy
+     * @return New segment instance with the same data if needed.
      */
-    private ByteBuffer unmap(ByteBuffer buffer) {
-        if (bucket.tx.writable && buffer.isDirect()) {
-            var b = ByteBuffer.allocate(buffer.remaining());
-            b.put(0, buffer, 0, buffer.remaining());
+    private ByteBuffer unmap(MemorySegment memorySegment) {
+        if (bucket.tx.writable && memorySegment.isNative()) {
+            var data = new byte[(int) memorySegment.byteSize()];
+            var segment = MemorySegment.ofArray(data);
+            segment.copyFrom(memorySegment);
 
-            return b;
+            return memorySegment.asByteBuffer();
         }
 
-        return buffer;
+        return memorySegment.asByteBuffer();
     }
 }

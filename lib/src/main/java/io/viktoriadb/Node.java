@@ -2,14 +2,13 @@ package io.viktoriadb;
 
 import com.google.common.collect.Lists;
 import io.viktoriadb.exceptions.DbException;
-import io.viktoriadb.util.ByteBufferComparator;
+import io.viktoriadb.util.MemorySegmentComparator;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import jdk.incubator.foreign.MemoryLayout;
+import jdk.incubator.foreign.MemorySegment;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Objects;
 
 /**
@@ -19,14 +18,14 @@ import java.util.Objects;
  */
 final class Node {
     @SuppressWarnings("Guava")
-    private static final com.google.common.base.Function<Node.INode, ByteBuffer>
+    private static final com.google.common.base.Function<Node.INode, MemorySegment>
             iNodeKeyViewTransformer = inode -> inode.key;
 
     Bucket bucket;
     boolean isLeaf;
     boolean unbalanced;
     boolean spilled;
-    ByteBuffer firstKey;
+    MemorySegment firstKey;
     long pageId;
     Node parent;
     ArrayList<Node> children = new ArrayList<>();
@@ -63,10 +62,10 @@ final class Node {
         final boolean isLeaf = this.isLeaf;
 
         for (var iNode : inodes) {
-            size += elementSize + iNode.key.remaining();
+            size += elementSize + (int) iNode.key.byteSize();
 
             if (isLeaf) {
-                size += iNode.value.remaining();
+                size += (int) iNode.value.byteSize();
             }
         }
 
@@ -88,10 +87,10 @@ final class Node {
         final boolean isLeaf = this.isLeaf;
 
         for (var iNode : inodes) {
-            size += elementSize + iNode.key.remaining();
+            size += elementSize + (int) iNode.key.byteSize();
 
             if (isLeaf) {
-                size += iNode.value.remaining();
+                size += (int) iNode.value.byteSize();
             }
 
             if (size >= givenSize) {
@@ -144,21 +143,21 @@ final class Node {
      * @param pageId ID of the child page.
      * @param flags  Flags stored in a leaf element, will be taken into account only for the leaf node.
      */
-    void put(ByteBuffer oldKey, ByteBuffer newKey, ByteBuffer value, long pageId, int flags) {
+    void put(MemorySegment oldKey, MemorySegment newKey, MemorySegment value, long pageId, int flags) {
         if (pageId >= bucket.tx.meta.getMaxPageId()) {
             throw new DbException(
                     String.format("pgid (%d) above high water mark (%d)", pageId, bucket.tx.meta.getMaxPageId()));
-        } else if (oldKey == null || oldKey.remaining() == 0) {
+        } else if (oldKey == null || oldKey.byteSize() == 0) {
             throw new DbException("put: zero-length old key");
-        } else if (newKey == null || newKey.remaining() == 0) {
+        } else if (newKey == null || newKey.byteSize() == 0) {
             throw new DbException("put: zero-length new key");
         }
 
-        assert newKey.remaining() > 0 : "put: zero-length inode key";
+        assert newKey.byteSize() > 0 : "put: zero-length inode key";
 
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var iNodeKeyView = Lists.transform(inodes, iNodeKeyViewTransformer);
-        int index = Collections.binarySearch(iNodeKeyView, oldKey, ByteBufferComparator.INSTANCE);
+        int index = Collections.binarySearch(iNodeKeyView, oldKey, MemorySegmentComparator.INSTANCE);
 
         INode inode;
         if (index < 0) {
@@ -195,14 +194,14 @@ final class Node {
                 inode.key = elem.getKey();
             }
 
-            assert inode.key.remaining() > 0 : "read: zero-length inode key";
+            assert inode.key.byteSize() > 0 : "read: zero-length inode key";
             inodes.add(inode);
         }
 
         // Save first key so we can find the node in the parent when we spill.
         if (!inodes.isEmpty()) {
             firstKey = inodes.get(0).key;
-            assert firstKey.remaining() > 0 : "read: zero-length node key";
+            assert firstKey.byteSize() > 0 : "read: zero-length node key";
         } else {
             firstKey = null;
         }
@@ -238,7 +237,8 @@ final class Node {
             entriesOffset += inodes.size() * BTreePage.BranchPageElement.SIZE;
         }
 
-        final ByteBuffer buffer = page.pageSegment.asSlice(entriesOffset).asByteBuffer();
+        var segment = page.pageSegment;
+        int position = entriesOffset;
 
         //give jit a chance to optimize loop by avoiding branching
         final boolean isLeaf = this.isLeaf;
@@ -246,35 +246,33 @@ final class Node {
         for (int i = 0; i < inodes.size(); i++) {
             var inode = inodes.get(i);
 
-            assert inode.key.remaining() > 0 : "write: zero-length inode key";
+            assert inode.key.byteSize() > 0 : "write: zero-length inode key";
 
             if (isLeaf) {
                 var elem = page.getLeafElement(i);
                 int leafElementOffset = page.getLeafElementOffset(i);
-                elem.setPos(entriesOffset + buffer.position() - leafElementOffset);
+                elem.setPos(position - leafElementOffset);
 
                 elem.setFlags(inode.flags);
-                elem.setKSize(inode.key.remaining());
-                elem.setVSize(inode.value.remaining());
+                elem.setKSize((int) inode.key.byteSize());
+                elem.setVSize((int) inode.value.byteSize());
             } else {
                 var elem = page.getBranchElement(i);
                 int branchElementOffset = page.getBranchElementOffset(i);
 
-                elem.setPos(entriesOffset + buffer.position() - branchElementOffset);
-                elem.setKSize(inode.key.remaining());
+                elem.setPos(position - branchElementOffset);
+                elem.setKSize((int) inode.key.byteSize());
                 elem.setPageId(inode.pageId);
 
                 assert inode.pageId != pageId : "write: circular dependency occurred";
             }
 
-            int position = inode.key.position();
-            buffer.put(inode.key);
-            inode.key.position(position);
+            segment.asSlice(position).copyFrom(inode.key);
+            position += (int) inode.key.byteSize();
 
             if (isLeaf) {
-                position = inode.value.position();
-                buffer.put(inode.value);
-                inode.value.position(position);
+                segment.asSlice(position).copyFrom(inode.value);
+                position += (int) inode.value.byteSize();
             }
         }
     }
@@ -345,7 +343,7 @@ final class Node {
                 //references
                 node.parent.put(key, node.inodes.get(0).key, null, node.pageId, 0);
                 node.firstKey = node.inodes.get(0).key;
-                assert node.firstKey.remaining() > 0 : "spill: zero-length node key";
+                assert node.firstKey.byteSize() > 0 : "spill: zero-length node key";
             }
 
             tx.stats.spill++;
@@ -482,16 +480,16 @@ final class Node {
      */
     void dereference() {
         if (firstKey != null) {
-            this.firstKey = copyToHeapBuffer(this.firstKey);
-            assert pageId == 0 || firstKey.remaining() > 0 : "dereference: zero-length node key on existing node";
+            this.firstKey = copyToHeapSegment(this.firstKey);
+            assert pageId == 0 || firstKey.byteSize() > 0 : "dereference: zero-length node key on existing node";
         }
 
         for (var inode : inodes) {
-            inode.key = copyToHeapBuffer(inode.key);
-            assert inode.key.remaining() > 0 : "dereference: zero-length inode key";
+            inode.key = copyToHeapSegment(inode.key);
+            assert inode.key.byteSize() > 0 : "dereference: zero-length inode key";
 
             if (isLeaf) {
-                inode.value = copyToHeapBuffer(inode.value);
+                inode.value = copyToHeapSegment(inode.value);
             }
         }
 
@@ -503,23 +501,23 @@ final class Node {
     }
 
     /**
-     * Copies content of any passed in ByteBuffer to the heap based ByteBuffer if needed.
+     * Copies content of any passed in MemorySegment to the heap based MemorySegment if needed.
      *
-     * @param source Buffer needs to be copied.
-     * @return Copy of ByteBuffer, or the same ByteBuffer as was passed if it is based on heap.
+     * @param source Segment needs to be copied.
+     * @return Copy of MemorySegment, or the same MemorySegment as was passed if it is based on heap.
      */
-    private static ByteBuffer copyToHeapBuffer(final ByteBuffer source) {
+    private static MemorySegment copyToHeapSegment(final MemorySegment source) {
         if (source == null) {
+            return null;
+        }
+
+        if (!source.isNative()) {
             return source;
         }
 
-        if (!source.isDirect()) {
-            return source;
-        }
-
-        final byte[] data = new byte[source.remaining()];
-        source.get(source.position(), data);
-        return ByteBuffer.wrap(data);
+        var segment = MemorySegment.ofArray(new byte[(int) source.byteSize()]);
+        segment.copyFrom(source);
+        return segment;
     }
 
     /**
@@ -624,9 +622,9 @@ final class Node {
             index = i;
             var inode = inodes.get(i);
 
-            int elsize = pageElementSize + inode.key.remaining();
+            int elsize = pageElementSize + (int) inode.key.byteSize();
             if (isLeaf) {
-                elsize += inode.value.remaining();
+                elsize += (int) inode.value.byteSize();
             }
 
             sz += elsize;
@@ -652,7 +650,7 @@ final class Node {
     private int childIndex(Node child) {
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var iNodeKeyView = Lists.transform(inodes, iNodeKeyViewTransformer);
-        return Collections.binarySearch(iNodeKeyView, child.firstKey, ByteBufferComparator.INSTANCE);
+        return Collections.binarySearch(iNodeKeyView, child.firstKey, MemorySegmentComparator.INSTANCE);
     }
 
     /**
@@ -671,10 +669,10 @@ final class Node {
      *
      * @param key key to remove.
      */
-    void del(ByteBuffer key) {
+    void del(MemorySegment key) {
         @SuppressWarnings("StaticPseudoFunctionalStyleMethod")
         var iNodesKeyView = Lists.transform(inodes, iNodeKeyViewTransformer);
-        int index = Collections.binarySearch(iNodesKeyView, key, ByteBufferComparator.INSTANCE);
+        int index = Collections.binarySearch(iNodesKeyView, key, MemorySegmentComparator.INSTANCE);
 
         if (index < 0) {
             return;
@@ -714,16 +712,9 @@ final class Node {
     static final class INode {
         int flags;
         long pageId;
-        ByteBuffer key;
-        ByteBuffer value;
+
+        MemorySegment key;
+        MemorySegment value;
     }
 
-    static final class NodeKeyComparator implements Comparator<Node> {
-        static final NodeKeyComparator INSTANCE = new NodeKeyComparator();
-
-        @Override
-        public int compare(Node firstNode, Node secondNode) {
-            return ByteBufferComparator.INSTANCE.compare(firstNode.firstKey, secondNode.firstKey);
-        }
-    }
 }

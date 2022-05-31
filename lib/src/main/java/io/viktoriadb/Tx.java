@@ -306,7 +306,6 @@ public final class Tx {
                 }
 
                 var memorySegment = page.pageSegment;
-                memorySegment.fill((byte) 0);
 
                 //noinspection resource
                 assert memorySegment.scope() == db.poolScope;
@@ -339,6 +338,7 @@ public final class Tx {
 
         // Clear all references.
         db = null;
+        meta = null;
         dirtyPages = null;
         root = null;
     }

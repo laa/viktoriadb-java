@@ -1,10 +1,10 @@
 package io.viktoriadb;
 
+import io.viktoriadb.util.MemorySegmentComparator;
 import jdk.incubator.foreign.MemorySegment;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class NodeTest {
@@ -24,14 +24,20 @@ public class NodeTest {
 
         Assert.assertEquals(3, node.inodes.size());
 
-        Assert.assertEquals(bytes("bar"), node.inodes.get(0).key);
-        Assert.assertEquals(bytes("1"), node.inodes.get(0).value);
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("bar"), node.inodes.get(0).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("1"), node.inodes.get(0).value));
 
-        Assert.assertEquals(bytes("baz"), node.inodes.get(1).key);
-        Assert.assertEquals(bytes("2"), node.inodes.get(1).value);
+        Assert.assertEquals(0, MemorySegmentComparator.INSTANCE.compare(bytes("baz"),
+                node.inodes.get(1).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("2"), node.inodes.get(1).value));
 
-        Assert.assertEquals(bytes("foo"), node.inodes.get(2).key);
-        Assert.assertEquals(bytes("3"), node.inodes.get(2).value);
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("foo"), node.inodes.get(2).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("3"), node.inodes.get(2).value));
 
         Assert.assertEquals(1, node.inodes.get(2).flags);
     }
@@ -59,16 +65,22 @@ public class NodeTest {
 
         Assert.assertEquals(3, node0.inodes.size());
 
-        Assert.assertEquals(bytes("john"), node0.inodes.get(0).key);
-        Assert.assertEquals(bytes("johnson"), node0.inodes.get(0).value);
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("john"), node0.inodes.get(0).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("johnson"), node0.inodes.get(0).value));
         Assert.assertEquals(3, node0.inodes.get(0).flags);
 
-        Assert.assertEquals(bytes("ricki"), node0.inodes.get(1).key);
-        Assert.assertEquals(bytes("lake"), node0.inodes.get(1).value);
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("ricki"), node0.inodes.get(1).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("lake"), node0.inodes.get(1).value));
         Assert.assertEquals(2, node0.inodes.get(1).flags);
 
-        Assert.assertEquals(bytes("susy"), node0.inodes.get(2).key);
-        Assert.assertEquals(bytes("que"), node0.inodes.get(2).value);
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("susy"), node0.inodes.get(2).key));
+        Assert.assertEquals(0,
+                MemorySegmentComparator.INSTANCE.compare(bytes("que"), node0.inodes.get(2).value));
         Assert.assertEquals(1, node0.inodes.get(2).flags);
     }
 
@@ -149,8 +161,8 @@ public class NodeTest {
         return (BTreePage) Page.createNewPage(memorySegment, Page.PageType.LEAF_PAGE);
     }
 
-    private static ByteBuffer bytes(String string) {
+    private static MemorySegment bytes(String string) {
         var bytes = string.getBytes(StandardCharsets.UTF_8);
-        return ByteBuffer.wrap(bytes);
+        return MemorySegment.ofArray(bytes);
     }
 }

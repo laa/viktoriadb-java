@@ -6,7 +6,6 @@ import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.AbstractList;
 import java.util.RandomAccess;
@@ -41,6 +40,12 @@ final class BTreePage extends Page {
 
     BTreePage(MemorySegment memorySegment) {
         super(memorySegment);
+    }
+
+    @Override
+    void init() {
+        super.init();
+        setCount((short) 0);
     }
 
     short getCount() {
@@ -157,19 +162,19 @@ final class BTreePage extends Page {
             return (int) VSIZE_HANDLE.get(memorySegment, VSIZE_HANDLE_OFFSET);
         }
 
-        ByteBuffer getKey() {
+        MemorySegment getKey() {
             final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
             final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
 
-            return memorySegment.asSlice(pos, ksize).asByteBuffer();
+            return memorySegment.asSlice(pos, ksize);
         }
 
-        ByteBuffer getValue() {
+        MemorySegment getValue() {
             final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
             final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
             final int vsize = (int) VSIZE_HANDLE.get(memorySegment, VSIZE_HANDLE_OFFSET);
 
-            return memorySegment.asSlice(pos + ksize, vsize).asByteBuffer();
+            return memorySegment.asSlice(pos + ksize, vsize);
         }
     }
 
@@ -251,11 +256,11 @@ final class BTreePage extends Page {
             return (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
         }
 
-        ByteBuffer getKey() {
+        MemorySegment getKey() {
             final int pos = (int) POS_HANDLE.get(memorySegment, POS_HANDLE_OFFSET);
             final int ksize = (int) KSIZE_HANDLE.get(memorySegment, KSIZE_HANDLE_OFFSET);
 
-            return memorySegment.asSlice(pos, ksize).asByteBuffer();
+            return memorySegment.asSlice(pos, ksize);
         }
     }
 

@@ -73,11 +73,19 @@ class Page {
         };
 
         FLAGS_HANDLE.set(pageSegment, FLAGS_HANDLE_OFFSET, flag);
-        return createExistingPage(pageSegment);
+        var page = createExistingPage(pageSegment);
+        page.init();
+
+        return page;
     }
 
     Page(MemorySegment pageSegment) {
         this.pageSegment = pageSegment;
+    }
+
+    void init() {
+        setPageId(0);
+        setOverflow(0);
     }
 
     final void setPageId(long pageId) {

@@ -3,10 +3,7 @@ package io.viktoriadb.util;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 
-/**
- * Comparator to compare {@link java.nio.ByteBuffer}s as if they contain unsigned byte arrays.
- */
-public final class ByteBufferComparator implements Comparator<ByteBuffer> {
+public class ByteBufferComparator implements Comparator<ByteBuffer> {
     public static final ByteBufferComparator INSTANCE = new ByteBufferComparator();
 
     @Override

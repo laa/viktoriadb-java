@@ -28,9 +28,6 @@ public final class DB implements Closeable {
      */
     static final int VERSION = 2;
 
-    /**
-     * The data file format version.
-     */
     static final int MAGIC = 0xED0CDAED;
 
     /**
@@ -56,15 +53,7 @@ public final class DB implements Closeable {
 
     /**
      * Setting the noSync flag will cause the database to skip fsync()
-     * calls after each commit. This can be useful when bulk loading data
-     * into a database and you can restart the bulk load in the event of
-     * a system failure or database corruption. Do not set this flag for
-     * normal use.
-     * <p>
-     * If the package global IgnoreNoSync constant is true, this value is
-     * ignored.  See the comment on that constant for more details.
-     * <p>
-     * THIS IS UNSAFE. PLEASE USE WITH CAUTION.
+     * calls after each commit.
      */
     final boolean noSync;
 
@@ -90,7 +79,7 @@ public final class DB implements Closeable {
 
     private MemorySegment mmapSegment;
 
-    private final ConcurrentSkipListSet<Tx> txs = new ConcurrentSkipListSet<>(Comparator.comparingLong(Tx::id));
+    private final ConcurrentSkipListSet<Long> txs = new ConcurrentSkipListSet<>();
     final FreeList freeList = new FreeList();
 
     Stats stats = new Stats();
@@ -449,7 +438,7 @@ public final class DB implements Closeable {
             }
 
             tx = new Tx(this, false);
-            txs.add(tx);
+            txs.add(tx.meta.getTXId());
         } finally {
             metaLock.sharedUnlock();
         }
@@ -487,8 +476,7 @@ public final class DB implements Closeable {
         // Free any pages associated with closed read-only transactions.
         if (!txs.isEmpty()) {
             try {
-                var firstTx = txs.first();
-                mindid = firstTx.id();
+                mindid = txs.first();
             } catch (NoSuchElementException e) {
                 //ignore
             }
@@ -591,7 +579,7 @@ public final class DB implements Closeable {
     void removeTx(Tx tx) {
         mMapLock.sharedUnlock();
 
-        var removed = txs.remove(tx);
+        var removed = txs.remove(tx.meta.getTXId());
         assert removed;
 
         stats.openTxN.decrement();
