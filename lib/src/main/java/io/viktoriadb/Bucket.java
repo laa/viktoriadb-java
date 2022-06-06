@@ -81,9 +81,19 @@ public final class Bucket {
      */
     Node rootNode;
 
-    Bucket(Tx tx) {
+    boolean isRootBucket;
+
+    /**
+     * Presentation of bucket inside of the disk.
+     * This value is filled only after the call of {@link #spill()} method. So it is written only once.
+     */
+    MemorySegment spilled;
+
+    Bucket(Tx tx, boolean isRootBucket) {
         this.tx = tx;
         this.fillPercent = DEFAULT_FILL_PERCENT;
+        this.isRootBucket = isRootBucket;
+
         if (tx.writable) {
             buckets = new HashMap<>();
             nodes = new Long2ObjectOpenHashMap<>();
@@ -99,6 +109,7 @@ public final class Bucket {
      *
      * @param fillPercent threshold for filling nodes when they split.
      */
+    @SuppressWarnings("unused")
     public void setFillPercent(float fillPercent) {
         this.fillPercent = fillPercent;
     }
@@ -151,6 +162,16 @@ public final class Bucket {
             if (child != null) {
                 return child;
             }
+        } else {
+            //we cache buckets after the write so they can be reused in read-only transactions.
+            //buckets are not null only during write transactions
+            if (isRootBucket) {
+                var bucket = tx.db.buckets.get(name);
+
+                if (bucket != null) {
+                    return openBucket(bucket);
+                }
+            }
         }
 
         var nameSegment = MemorySegment.ofByteBuffer(name);
@@ -184,9 +205,9 @@ public final class Bucket {
      * @return Deserialized presentation of {@link  Bucket}.
      */
     private Bucket openBucket(MemorySegment bucketValue) {
-        var child = new Bucket(tx);
+        var child = new Bucket(tx, false);
 
-        if (bucketValue.isNative() && (bucketValue.address().toRawLongValue() & 3) != 0) {
+        if (bucketValue.isNative()) {
             var heapSegment = MemorySegment.ofArray(new byte[(int) bucketValue.byteSize()]);
             heapSegment.copyFrom(bucketValue);
 
@@ -239,7 +260,7 @@ public final class Bucket {
         }
 
         // Create empty, inline bucket.
-        var bucket = new Bucket(tx);
+        var bucket = new Bucket(tx, false);
         bucket.rootNode = new Node();
         bucket.rootNode.isLeaf = true;
 
@@ -312,6 +333,9 @@ public final class Bucket {
         });
 
         buckets.remove(name);
+
+        tx.db.buckets.remove(name);
+
         child.nodes = null;
         child.rootNode = null;
         child.free();
@@ -458,6 +482,8 @@ public final class Bucket {
             if (child.rootNode == null) {
                 continue;
             }
+
+            child.spilled = value;
 
             // Update parent node.
             var cursor = cursor();
@@ -636,7 +662,7 @@ public final class Bucket {
      *
      * @return serialized presentation of bucket.
      */
-    private MemorySegment write() {
+    MemorySegment write() {
         // Allocate the appropriate size.
         var value = MemorySegment.ofArray(new byte[Long.BYTES + rootNode.size()]);
         ROOT_VAR_HANDLE.set(value, 0, root);

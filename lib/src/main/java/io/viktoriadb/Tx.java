@@ -59,7 +59,7 @@ public final class Tx {
 
         this.meta = new Meta(metaSegment);
 
-        this.root = new Bucket(this);
+        this.root = new Bucket(this, true);
         this.root.root = this.meta.getRoot();
 
         // Increment the transaction id and add a page cache for writable transactions.
@@ -335,6 +335,16 @@ public final class Tx {
         } else {
             db.removeTx(this);
         }
+
+
+        //update cache of db buckets
+        if (writable) {
+            for (var children : root.buckets.entrySet()) {
+                var value = children.getValue().spilled;
+                db.buckets.put(children.getKey(), value);
+            }
+        }
+
 
         // Clear all references.
         db = null;

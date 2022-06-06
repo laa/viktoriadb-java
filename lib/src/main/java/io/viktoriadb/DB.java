@@ -85,6 +85,11 @@ public final class DB implements Closeable {
     Stats stats = new Stats();
 
     /**
+     * Cache of the child of root buckets. All MemorySegment here are heap based.
+     */
+    final HashMap<ByteBuffer, MemorySegment> buckets = new HashMap<>();
+
+    /**
      * Pool of pages allocated using native memory.
      * It is not thread safe because all allocations/deallocations
      * are performed inside write transactions which protected by {@link  #rwLock}.
@@ -589,6 +594,7 @@ public final class DB implements Closeable {
     /**
      * @return Path returns the path to currently open database file.
      */
+    @SuppressWarnings("unused")
     public Path path() {
         return path;
     }
@@ -607,6 +613,7 @@ public final class DB implements Closeable {
      *
      * @return Result of execution.
      */
+    @SuppressWarnings("unused")
     public <V> V calculateInsideWriteTx(Function<Tx, V> code) {
         var tx = begin(true);
         tx.managed = true;
@@ -668,6 +675,7 @@ public final class DB implements Closeable {
      * @param <V>  Return type of result.
      * @return Result of execution of code.
      */
+    @SuppressWarnings("unused")
     public <V> V calculateInReadTx(Function<Tx, V> code) {
         var tx = begin(false);
         tx.managed = true;

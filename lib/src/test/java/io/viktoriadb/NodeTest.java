@@ -16,7 +16,7 @@ public class NodeTest {
         tx.meta = createMetaPage();
         tx.meta.setMaxPageId(1);
 
-        node.bucket = new Bucket(tx);
+        node.bucket = new Bucket(tx, false);
         node.put(bytes("baz"), bytes("baz"), bytes("2"), 0, 0);
         node.put(bytes("foo"), bytes("foo"), bytes("0"), 0, 0);
         node.put(bytes("bar"), bytes("bar"), bytes("1"), 0, 0);
@@ -50,7 +50,7 @@ public class NodeTest {
         tx.meta = createMetaPage();
         tx.meta.setMaxPageId(1);
 
-        node.bucket = new Bucket(tx);
+        node.bucket = new Bucket(tx, false);
         node.isLeaf = true;
 
         node.put(bytes("susy"), bytes("susy"), bytes("que"), 0, 1);
@@ -92,7 +92,7 @@ public class NodeTest {
         tx.meta = createMetaPage();
         tx.meta.setMaxPageId(1);
 
-        node.bucket = new Bucket(tx);
+        node.bucket = new Bucket(tx, false);
         node.isLeaf = true;
 
         node.put(bytes("00000001"), bytes("00000001"), bytes("0123456701234567"), 0, 0);
@@ -119,7 +119,7 @@ public class NodeTest {
         tx.meta = createMetaPage();
         tx.meta.setMaxPageId(1);
 
-        node.bucket = new Bucket(tx);
+        node.bucket = new Bucket(tx, false);
 
         node.put(bytes("00000001"), bytes("00000001"), bytes("0123456701234567"), 0, 0);
         node.put(bytes("00000002"), bytes("00000002"), bytes("0123456701234567"), 0, 0);
@@ -137,7 +137,7 @@ public class NodeTest {
         tx.meta = createMetaPage();
         tx.meta.setMaxPageId(1);
 
-        node.bucket = new Bucket(tx);
+        node.bucket = new Bucket(tx, false);
         node.isLeaf = true;
 
         node.put(bytes("00000001"), bytes("00000001"), bytes("0123456701234567"), 0, 0);
