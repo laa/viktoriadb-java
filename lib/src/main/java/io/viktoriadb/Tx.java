@@ -330,21 +330,19 @@ public final class Tx {
             db.stats.freeListInUse = freeListAlloc;
             db.stats.txStats.add(stats);
 
+            //update cache of db buckets
+            for (var children : root.buckets.entrySet()) {
+                var value = children.getValue().spilled;
+                if (value != null) {
+                    db.buckets.put(children.getKey(), value);
+                }
+            }
+
             db.rwTx = null;
             db.rwLock.unlock();
         } else {
             db.removeTx(this);
         }
-
-
-        //update cache of db buckets
-        if (writable) {
-            for (var children : root.buckets.entrySet()) {
-                var value = children.getValue().spilled;
-                db.buckets.put(children.getKey(), value);
-            }
-        }
-
 
         // Clear all references.
         db = null;

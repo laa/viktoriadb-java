@@ -18,6 +18,7 @@ import java.nio.channels.FileLock;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -87,7 +88,7 @@ public final class DB implements Closeable {
     /**
      * Cache of the child of root buckets. All MemorySegment here are heap based.
      */
-    final HashMap<ByteBuffer, MemorySegment> buckets = new HashMap<>();
+    final ConcurrentHashMap<ByteBuffer, MemorySegment> buckets = new ConcurrentHashMap<>();
 
     /**
      * Pool of pages allocated using native memory.
