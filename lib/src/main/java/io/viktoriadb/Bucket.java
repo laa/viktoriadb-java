@@ -207,7 +207,7 @@ public final class Bucket {
     private Bucket openBucket(MemorySegment bucketValue) {
         var child = new Bucket(tx, false);
 
-        if (bucketValue.isNative()) {
+        if (bucketValue.isNative() && (bucketValue.address().toRawLongValue() & 7) != 0) {
             var heapSegment = MemorySegment.ofArray(new byte[(int) bucketValue.byteSize()]);
             heapSegment.copyFrom(bucketValue);
 
